@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using BepInEx;
+using BepInEx.Configuration;
 using BepInEx.Logging;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -20,9 +21,13 @@ public class Plugin : BaseUnityPlugin
     private static readonly List<GameObject> pool_balls = [];
     private static readonly List<GameObject> pool_redBalls = [];
 
+    private ConfigEntry<KeyCode> configActivationKey;
+
 	private void Awake()
     {
         Logger = base.Logger;
+
+        configActivationKey = Config.Bind("General", "ActivationKey", KeyCode.F);
 
         SceneManager.sceneLoaded += OnSceneLoaded;
 
@@ -85,7 +90,7 @@ public class Plugin : BaseUnityPlugin
     // Keeping Update clean by factoring this out
     private void CheckHotkeys()
     {
-        if (Input.GetKeyDown(KeyCode.F)) // TODO: Keybind configuration
+        if (Input.GetKeyDown(configActivationKey.Value))
         {
             activated = !activated;
             if (activated) // The check is after the change, so this is checking if it has just been toggled on

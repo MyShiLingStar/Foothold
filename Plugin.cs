@@ -4,6 +4,7 @@ using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 namespace Foothold;
@@ -16,18 +17,38 @@ public class Plugin : BaseUnityPlugin
     internal static Scene currentScene;
     internal static MainCamera mainCamera;
     internal static bool activated = false;
+    internal static Material baseMaterial;
+
     private static readonly List<GameObject> balls = []; // good description of this mod
     private static readonly List<GameObject> redBalls = [];
     private static readonly List<GameObject> pool_balls = [];
     private static readonly List<GameObject> pool_redBalls = [];
+    private static float lastScanTime = 0; // should only be needed when fade away is on
 
     private ConfigEntry<KeyCode> configActivationKey;
+    private ConfigEntry<bool> configFadeAway;
 
-	private void Awake()
+    private void Awake()
     {
         Logger = base.Logger;
 
         configActivationKey = Config.Bind("General", "ActivationKey", KeyCode.F);
+        configFadeAway = Config.Bind("General", "FadeAway", false, "Replaces the toggle behavior with fading away each scan after 3 seconds, credit to VicVoss on GitHub for the idea");
+
+        Material mat = new(Shader.Find("Universal Render Pipeline/Lit"));
+        // permanently borrowed from https://discussions.unity.com/t/how-to-make-a-urp-lit-material-semi-transparent-using-script-and-then-set-it-back-to-being-solid/942231/3
+        mat.SetFloat("_Surface", 1);
+        mat.SetFloat("_Blend", 0);
+        mat.SetFloat("_ZWrite", 0);
+        mat.SetFloat("_ReceiveShadows", 0.0f);
+        mat.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
+        mat.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
+        mat.DisableKeyword("_ALPHATEST_ON");
+        mat.EnableKeyword("_ALPHABLEND_ON");
+        mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        mat.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        mat.renderQueue = (int)RenderQueue.Transparent;
+        baseMaterial = mat;
 
         SceneManager.sceneLoaded += OnSceneLoaded;
 
@@ -48,7 +69,7 @@ public class Plugin : BaseUnityPlugin
             {
                 GameObject ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 ball.SetActive(false);
-                ball.GetComponent<Renderer>().material = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                ball.GetComponent<Renderer>().material = new(baseMaterial);
                 ball.GetComponent<Collider>().enabled = false;
                 ball.transform.localScale = Vector3.one / 5;
                 pool_balls.Add(ball);
@@ -58,7 +79,7 @@ public class Plugin : BaseUnityPlugin
             {
                 GameObject ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 ball.SetActive(false);
-                Material mat = new(Shader.Find("Universal Render Pipeline/Lit"));
+                Material mat = new(baseMaterial);
                 mat.color = Color.red;
                 ball.GetComponent<Renderer>().material = mat;
                 ball.GetComponent<Collider>().enabled = false;
@@ -84,6 +105,7 @@ public class Plugin : BaseUnityPlugin
                 return;
             }
             CheckHotkeys();
+            if (configFadeAway.Value) SetBallAlphas();
         }
     }
 
@@ -92,8 +114,8 @@ public class Plugin : BaseUnityPlugin
     {
         if (Input.GetKeyDown(configActivationKey.Value))
         {
-            activated = !activated;
-            if (activated) // The check is after the change, so this is checking if it has just been toggled on
+            if (!configFadeAway.Value) activated = !activated;
+            if (activated || configFadeAway.Value) // The activated check is after the change, so this is checking if it has just been toggled on
             {
                 RenderVisualization();
             }
@@ -128,6 +150,7 @@ public class Plugin : BaseUnityPlugin
     private void RenderVisualization()
     {
         ReturnBallsToPool();
+        lastScanTime = Time.time;
         float freq = 0.5f;
         float yFreq = 1f;
         for (float x = -10; x <= 10; x += freq)
@@ -182,6 +205,22 @@ public class Plugin : BaseUnityPlugin
                     ball.SetActive(true);
                 }
             }
+        }
+    }
+
+    // This method is dedicated to VicVoss
+    private void SetBallAlphas()
+    {
+        if (!configFadeAway.Value) return; // this shouldn't be needed but it's good to be safe
+
+        float alpha = Mathf.Lerp(1f, 0f, Mathf.Clamp01((Time.time - (lastScanTime + 3)) / 3));
+
+        foreach (GameObject ball in balls.Concat(redBalls))
+        {
+            Material mat = ball.GetComponent<Renderer>().material;
+            Color baseColor = mat.GetColor("_BaseColor");
+            baseColor.a = alpha;
+            mat.SetColor("_BaseColor", baseColor);
         }
     }
 }

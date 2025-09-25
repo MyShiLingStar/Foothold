@@ -18,15 +18,18 @@ public class Plugin : BaseUnityPlugin
     internal static MainCamera mainCamera;
     internal static bool activated = false;
     internal static Material baseMaterial;
+    internal static float alpha = 1;
 
     private static readonly List<GameObject> balls = []; // good description of this mod
     private static readonly List<GameObject> redBalls = [];
     private static readonly List<GameObject> pool_balls = [];
     private static readonly List<GameObject> pool_redBalls = [];
     private static float lastScanTime = 0; // should only be needed when fade away is on
+    private static float lastAlphaChangeTime = 0; // should only be needed when fade away is on
 
     private ConfigEntry<KeyCode> configActivationKey;
     private ConfigEntry<bool> configFadeAway;
+    private ConfigEntry<bool> configDebugMode;
 
     private void Awake()
     {
@@ -34,6 +37,7 @@ public class Plugin : BaseUnityPlugin
 
         configActivationKey = Config.Bind("General", "ActivationKey", KeyCode.F);
         configFadeAway = Config.Bind("General", "FadeAway", false, "Replaces the toggle behavior with fading away each scan after 3 seconds, credit to VicVoss on GitHub for the idea");
+        configDebugMode = Config.Bind("General", "DebugMode", false, "Show debug information");
 
         Material mat = new(Shader.Find("Universal Render Pipeline/Lit"));
         // permanently borrowed from https://discussions.unity.com/t/how-to-make-a-urp-lit-material-semi-transparent-using-script-and-then-set-it-back-to-being-solid/942231/3
@@ -55,6 +59,16 @@ public class Plugin : BaseUnityPlugin
         Logger.LogInfo($"Loaded Foothold? version {MyPluginInfo.PLUGIN_VERSION}");
     }
 
+    private void OnGUI()
+    {
+        if (!configDebugMode.Value) return;
+        GUILayout.Label("balls: " + balls.Count);
+        GUILayout.Label("redBalls: " + redBalls.Count);
+        GUILayout.Label("pool_balls: " + pool_balls.Count);
+        GUILayout.Label("pool_redBalls: " + pool_redBalls.Count);
+        GUILayout.Label("alpha: " + alpha);
+    }
+
     private void OnSceneLoaded(Scene scene, LoadSceneMode _)
     {
         currentScene = scene;
@@ -64,27 +78,22 @@ public class Plugin : BaseUnityPlugin
         {
             // make pools
 
-            // normal
-            for (int i = 0; i < 2000; i++)
+            for (int i = 0; i < 4000; i++)
             {
                 GameObject ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 ball.SetActive(false);
                 ball.GetComponent<Renderer>().material = new(baseMaterial);
+                ball.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+                ball.GetComponent<Renderer>().receiveShadows = false;
                 ball.GetComponent<Collider>().enabled = false;
                 ball.transform.localScale = Vector3.one / 5;
-                pool_balls.Add(ball);
-            }
-            // red
-            for (int i = 0; i < 2000; i++)
-            {
-                GameObject ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                ball.SetActive(false);
-                Material mat = new(baseMaterial);
-                mat.color = Color.red;
-                ball.GetComponent<Renderer>().material = mat;
-                ball.GetComponent<Collider>().enabled = false;
-                ball.transform.localScale = Vector3.one / 5;
-                pool_redBalls.Add(ball);
+
+                if (i < 2000) pool_balls.Add(ball);
+                else
+                {
+                    ball.GetComponent<Renderer>().material.SetColor("_BaseColor", Color.red);
+                    pool_redBalls.Add(ball);
+                }
             }
         }
         else
@@ -213,7 +222,11 @@ public class Plugin : BaseUnityPlugin
     {
         if (!configFadeAway.Value) return; // this shouldn't be needed but it's good to be safe
 
-        float alpha = Mathf.Lerp(1f, 0f, Mathf.Clamp01((Time.time - (lastScanTime + 3)) / 3));
+        // effectively restrict framerate to 20 for performance
+        if (Time.time - lastAlphaChangeTime < 0.05) return;
+        lastAlphaChangeTime = Time.time;
+
+        alpha = Mathf.Lerp(1f, 0f, Mathf.Clamp01((Time.time - (lastScanTime + 3)) / 3));
 
         foreach (GameObject ball in balls.Concat(redBalls))
         {
@@ -222,5 +235,27 @@ public class Plugin : BaseUnityPlugin
             baseColor.a = alpha;
             mat.SetColor("_BaseColor", baseColor);
         }
+
+        if (alpha <= 0)
+            {
+                if (balls.Count > 0)
+                {
+                    foreach (GameObject ball in balls.ToList()) // ToList used to clone the list because you can't modify what you're enumerating
+                    {
+                        ball.SetActive(false);
+                        balls.Remove(ball);
+                        pool_balls.Add(ball);
+                    }
+                }
+                if (redBalls.Count > 0)
+                {
+                    foreach (GameObject ball in redBalls.ToList()) // ToList used to clone the list because you can't modify what you're enumerating
+                    {
+                        ball.SetActive(false);
+                        redBalls.Remove(ball);
+                        pool_redBalls.Add(ball);
+                    }
+                }
+            }
     }
 }

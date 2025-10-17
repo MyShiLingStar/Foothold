@@ -34,6 +34,9 @@ public class Plugin : BaseUnityPlugin
     private ConfigEntry<bool> configHairTrigger;
     private ConfigEntry<string> configStandableBallColor;
     private ConfigEntry<string> configNonStandableBallColor;
+    private Color LastStandableColor = Color.white;
+    private Color LastNonStandableColor = Color.red;
+
 
     private static bool isVisualizationRunning = false;
 
@@ -64,8 +67,57 @@ public class Plugin : BaseUnityPlugin
         baseMaterial = mat;
 
         SceneManager.sceneLoaded += OnSceneLoaded;
+        Config.SettingChanged += Config_SettingChanged;
 
         Logger.LogInfo($"Loaded Foothold? version {MyPluginInfo.PLUGIN_VERSION}");
+    }
+
+    private void Config_SettingChanged(object sender, SettingChangedEventArgs e)
+    {
+        if (currentScene.name.StartsWith("Level_") || currentScene.name.StartsWith("Airport"))
+        {
+            ReturnBallsToPool();
+
+            Color standable;
+            if (configStandableBallColor.Value.Equals("Green"))
+            {
+                standable = Color.green;
+            }
+            else
+            {
+                standable = Color.white;
+            }
+
+            Color NonStandable;
+            if (configNonStandableBallColor.Value.Equals("Magenta"))
+            {
+                NonStandable = Color.magenta;
+            }
+            else
+            {
+                NonStandable = Color.red;
+            }
+
+            if (LastStandableColor != standable)
+            {
+                pool_balls.Clear();
+                for (int i = 0; i < 2000; i++)
+                {
+                    pool_balls.Add(CreateBall(standable));
+                }
+                LastStandableColor = standable;
+            }
+
+            if (LastNonStandableColor != NonStandable)
+            {
+                pool_redBalls.Clear();
+                for (int i = 0; i < 2000; i++)
+                {
+                    pool_redBalls.Add(CreateBall(NonStandable));
+                }
+                LastNonStandableColor = NonStandable;
+            }
+        }
     }
 
     private void OnGUI()
@@ -125,6 +177,9 @@ public class Plugin : BaseUnityPlugin
             {
                 NonStandable = Color.red;
             }
+
+            LastStandableColor = standable;
+            LastNonStandableColor = NonStandable;
 
             for (int i = 0; i < 2000; i++)
             {

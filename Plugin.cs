@@ -1,8 +1,9 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-using BepInEx;
+﻿using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
@@ -30,14 +31,22 @@ public class Plugin : BaseUnityPlugin
     private ConfigEntry<KeyCode> configActivationKey;
     private ConfigEntry<bool> configFadeAway;
     private ConfigEntry<bool> configDebugMode;
+    private ConfigEntry<bool> configHairTrigger;
+    private ConfigEntry<string> configStandableBallColor;
+    private ConfigEntry<string> configNonStandableBallColor;
+
+    private static bool isVisualizationRunning = false;
 
     private void Awake()
     {
         Logger = base.Logger;
 
-        configActivationKey = Config.Bind("General", "ActivationKey", KeyCode.F);
-        configFadeAway = Config.Bind("General", "FadeAway", false, "Replaces the toggle behavior with fading away each scan after 3 seconds, credit to VicVoss on GitHub for the idea");
-        configDebugMode = Config.Bind("General", "DebugMode", false, "Show debug information");
+        configActivationKey = Config.Bind("General", "Activation Key", KeyCode.F);
+        configHairTrigger = Config.Bind("General", "Hair Trigger", false, "Replaces the toggle behavior with a hair-trigger action that fires every time the button is pressed.");
+        configFadeAway = Config.Bind("General", "Fade Away", false, "Replaces the toggle behavior with fading away each scan after 3 seconds, credit to VicVoss on GitHub for the idea");
+        configDebugMode = Config.Bind("General", "Debug Mode", false, "Show debug information");
+        configStandableBallColor = Config.Bind("General", "Standable ground Color", "White", new ConfigDescription("Change the ball color of standable ground.", new AcceptableValueList<string>(["White", "Green"])));
+        configNonStandableBallColor = Config.Bind("General", "Non-standable ground Color", "Red", new ConfigDescription("Change the ball color of non-standable ground.", new AcceptableValueList<string>(["Red", "Magenta"])));
 
         Material mat = new(Shader.Find("Universal Render Pipeline/Lit"));
         // permanently borrowed from https://discussions.unity.com/t/how-to-make-a-urp-lit-material-semi-transparent-using-script-and-then-set-it-back-to-being-solid/942231/3
@@ -62,11 +71,25 @@ public class Plugin : BaseUnityPlugin
     private void OnGUI()
     {
         if (!configDebugMode.Value) return;
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
+        GUILayout.Label("");
         GUILayout.Label("balls: " + balls.Count);
         GUILayout.Label("redBalls: " + redBalls.Count);
         GUILayout.Label("pool_balls: " + pool_balls.Count);
         GUILayout.Label("pool_redBalls: " + pool_redBalls.Count);
         GUILayout.Label("alpha: " + alpha);
+        GUILayout.Label("isVisualizationRunning: " + isVisualizationRunning.ToString());
     }
 
     private void OnSceneLoaded(Scene scene, LoadSceneMode _)
@@ -74,26 +97,39 @@ public class Plugin : BaseUnityPlugin
         currentScene = scene;
         // Checking for mainCamera in update because it PROBABLY spawns after scene load for networking reasons but this is a complete guess
 
-        if (currentScene.name.StartsWith("Level_"))
+        balls.Clear();
+        redBalls.Clear();
+        pool_balls.Clear();
+        pool_redBalls.Clear();
+
+        if (currentScene.name.StartsWith("Level_") || currentScene.name.StartsWith("Airport"))
         {
             // make pools
 
-            for (int i = 0; i < 4000; i++)
+            Color standable;
+            if (configStandableBallColor.Value.Equals("Green"))
             {
-                GameObject ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                ball.SetActive(false);
-                ball.GetComponent<Renderer>().material = new(baseMaterial);
-                ball.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
-                ball.GetComponent<Renderer>().receiveShadows = false;
-                ball.GetComponent<Collider>().enabled = false;
-                ball.transform.localScale = Vector3.one / 5;
+                standable = Color.green;
+            }
+            else
+            {
+                standable = Color.white;
+            }
 
-                if (i < 2000) pool_balls.Add(ball);
-                else
-                {
-                    ball.GetComponent<Renderer>().material.SetColor("_BaseColor", Color.red);
-                    pool_redBalls.Add(ball);
-                }
+            Color NonStandable;
+            if (configNonStandableBallColor.Value.Equals("Magenta"))
+            {
+                NonStandable = Color.magenta;
+            }
+            else
+            {
+                NonStandable = Color.red;
+            }
+
+            for (int i = 0; i < 2000; i++)
+            {
+                pool_balls.Add(CreateBall(standable));
+                pool_redBalls.Add(CreateBall(NonStandable));
             }
         }
         else
@@ -104,9 +140,22 @@ public class Plugin : BaseUnityPlugin
         }
     }
 
+    private GameObject CreateBall(Color ballColor)
+    {
+        GameObject ball = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        ball.SetActive(false);
+        ball.GetComponent<Renderer>().material = new(baseMaterial);
+        ball.GetComponent<Renderer>().shadowCastingMode = ShadowCastingMode.Off;
+        ball.GetComponent<Renderer>().receiveShadows = false;
+        ball.GetComponent<Collider>().enabled = false;
+        ball.GetComponent<Renderer>().material.SetColor("_BaseColor", ballColor);
+        ball.transform.localScale = Vector3.one / 5;
+        return ball;
+    }
+
     private void Update()
     {
-        if (currentScene.name.StartsWith("Level_"))
+        if (currentScene.name.StartsWith("Level_") || currentScene.name.StartsWith("Airport"))
         {
             if (mainCamera == null)
             {
@@ -114,7 +163,7 @@ public class Plugin : BaseUnityPlugin
                 return;
             }
             CheckHotkeys();
-            if (configFadeAway.Value) SetBallAlphas();
+            if (configFadeAway.Value && !configHairTrigger.Value) SetBallAlphas();
         }
     }
 
@@ -123,10 +172,24 @@ public class Plugin : BaseUnityPlugin
     {
         if (Input.GetKeyDown(configActivationKey.Value))
         {
+            if (isVisualizationRunning) return;
+
+            if (configHairTrigger.Value)
+            {
+                isVisualizationRunning = true;
+
+                //RenderVisualization();
+
+                StartCoroutine(RenderVisualizationCoroutine());
+                return;
+            }
+
             if (!configFadeAway.Value) activated = !activated;
             if (activated || configFadeAway.Value) // The activated check is after the change, so this is checking if it has just been toggled on
             {
-                RenderVisualization();
+                isVisualizationRunning = true;
+
+                StartCoroutine(RenderVisualizationCoroutine());
             }
             else
             {
@@ -177,6 +240,37 @@ public class Plugin : BaseUnityPlugin
                 }
             }
         }
+    }
+
+    private IEnumerator RenderVisualizationCoroutine()
+    {
+        ReturnBallsToPool();
+        lastScanTime = Time.time;
+
+        float freq = 0.5f;
+        float yFreq = 1f;
+        int totalCalls = 0;
+        for (float x = -10; x <= 10; x += freq)
+        {
+            for (float y = -10; y <= 10; y += yFreq)
+            {
+                for (float z = -10; z <= 10; z += freq)
+                {
+                    Vector3 position = new(
+                        mainCamera.transform.position.x + x,
+                        mainCamera.transform.position.y + y,
+                        mainCamera.transform.position.z + z
+                    );
+                    CheckAndPlaceBallAt(position);
+                    totalCalls++;
+                    if (totalCalls % 1000 == 0)
+                    {
+                        yield return null; // Wait for next frame
+                    }
+                }
+            }
+        }
+        isVisualizationRunning = false;
     }
 
     // Most of this code was "borrowed" from CharacterMovement.RaycastGroundCheck

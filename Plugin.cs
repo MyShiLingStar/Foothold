@@ -1,6 +1,7 @@
 ﻿using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -32,8 +33,8 @@ public class Plugin : BaseUnityPlugin
     private ConfigEntry<bool> configFadeAway;
     private ConfigEntry<bool> configDebugMode;
     private ConfigEntry<bool> configHairTrigger;
-    private ConfigEntry<string> configStandableBallColor;
-    private ConfigEntry<string> configNonStandableBallColor;
+    private ConfigEntry<StandableColor> configStandableBallColor;
+    private ConfigEntry<NonStandableColor> configNonStandableBallColor;
     private Color LastStandableColor = Color.white;
     private Color LastNonStandableColor = Color.red;
 
@@ -44,12 +45,13 @@ public class Plugin : BaseUnityPlugin
     {
         Logger = base.Logger;
 
+        configStandableBallColor = Config.Bind("General", "Standable ground Color", StandableColor.White, "Change the ball color of standable ground.");
+        configNonStandableBallColor = Config.Bind("General", "Non-standable ground Color", NonStandableColor.Red, "Change the ball color of non-standable ground.");
+
         configActivationKey = Config.Bind("General", "Activation Key", KeyCode.F);
         configHairTrigger = Config.Bind("General", "Hair Trigger", false, "Replaces the toggle behavior with a hair-trigger action that fires every time the button is pressed.");
         configFadeAway = Config.Bind("General", "Fade Away", false, "Replaces the toggle behavior with fading away each scan after 3 seconds, credit to VicVoss on GitHub for the idea");
         configDebugMode = Config.Bind("General", "Debug Mode", false, "Show debug information");
-        configStandableBallColor = Config.Bind("General", "Standable ground Color", "White", new ConfigDescription("Change the ball color of standable ground.", new AcceptableValueList<string>(["White", "Green"])));
-        configNonStandableBallColor = Config.Bind("General", "Non-standable ground Color", "Red", new ConfigDescription("Change the ball color of non-standable ground.", new AcceptableValueList<string>(["Red", "Magenta"])));
 
         Material mat = new(Shader.Find("Universal Render Pipeline/Lit"));
         // permanently borrowed from https://discussions.unity.com/t/how-to-make-a-urp-lit-material-semi-transparent-using-script-and-then-set-it-back-to-being-solid/942231/3
@@ -67,19 +69,20 @@ public class Plugin : BaseUnityPlugin
         baseMaterial = mat;
 
         SceneManager.sceneLoaded += OnSceneLoaded;
-        Config.SettingChanged += Config_SettingChanged;
+        configStandableBallColor.SettingChanged += Color_SettingChanged;
+        configNonStandableBallColor.SettingChanged += Color_SettingChanged;
 
         Logger.LogInfo($"Loaded Foothold? version {MyPluginInfo.PLUGIN_VERSION}");
     }
 
-    private void Config_SettingChanged(object sender, SettingChangedEventArgs e)
+    private void Color_SettingChanged(object sender, EventArgs e)
     {
         if (currentScene.name.StartsWith("Level_") || currentScene.name.StartsWith("Airport"))
         {
             ReturnBallsToPool();
 
             Color standable;
-            if (configStandableBallColor.Value.Equals("Green"))
+            if (configStandableBallColor.Value == StandableColor.Green)
             {
                 standable = Color.green;
             }
@@ -89,7 +92,7 @@ public class Plugin : BaseUnityPlugin
             }
 
             Color NonStandable;
-            if (configNonStandableBallColor.Value.Equals("Magenta"))
+            if (configNonStandableBallColor.Value == NonStandableColor.Magenta)
             {
                 NonStandable = Color.magenta;
             }
@@ -406,5 +409,17 @@ public class Plugin : BaseUnityPlugin
                     }
                 }
             }
+    }
+
+    internal enum StandableColor
+    {
+        White,
+        Green
+    }
+
+    internal enum NonStandableColor
+    {
+        Red,
+        Magenta
     }
 }

@@ -22,17 +22,16 @@ public class Plugin : BaseUnityPlugin
     internal static Material baseMaterial;
     internal static float alpha = 1;
 
-    private static readonly List<GameObject> balls = []; // good description of this mod
-    private static readonly List<GameObject> redBalls = [];
-    private static readonly List<GameObject> pool_balls = [];
-    private static readonly List<GameObject> pool_redBalls = [];
+    private static readonly Queue<GameObject> balls = []; // good description of this mod
+    private static readonly Queue<GameObject> redBalls = [];
+    private static readonly Queue<GameObject> pool_balls = [];
+    private static readonly Queue<GameObject> pool_redBalls = [];
     private static float lastScanTime = 0; // should only be needed when fade away is on
     private static float lastAlphaChangeTime = 0; // should only be needed when fade away is on
 
     private ConfigEntry<KeyCode> configActivationKey;
-    private ConfigEntry<bool> configFadeAway;
     private ConfigEntry<bool> configDebugMode;
-    private ConfigEntry<bool> configHairTrigger;
+    private ConfigEntry<Mode> configMode;
     private ConfigEntry<StandableColor> configStandableBallColor;
     private ConfigEntry<NonStandableColor> configNonStandableBallColor;
     private Color LastStandableColor = Color.white;
@@ -49,8 +48,12 @@ public class Plugin : BaseUnityPlugin
         configNonStandableBallColor = Config.Bind("General", "Non-standable ground Color", NonStandableColor.Red, "Change the ball color of non-standable ground.");
 
         configActivationKey = Config.Bind("General", "Activation Key", KeyCode.F);
-        configHairTrigger = Config.Bind("General", "Hair Trigger", false, "Replaces the toggle behavior with a hair-trigger action that fires every time the button is pressed.");
-        configFadeAway = Config.Bind("General", "Fade Away", false, "Replaces the toggle behavior with fading away each scan after 3 seconds, credit to VicVoss on GitHub for the idea");
+
+        configMode = Config.Bind("General", "Activation Mode", Mode.Toggle, """
+            Toggle: Press once to activate; press again to hide the indicator.
+            Fade Away: Activates every time the button is pressed. The indicator will fade away after 3 seconds. Credit to VicVoss on GitHub for the idea.
+            Hair Trigger: Activates every time the button is pressed. The indicator will remain visible.
+            """);
         configDebugMode = Config.Bind("General", "Debug Mode", false, "Show debug information");
 
         Material mat = new(Shader.Find("Universal Render Pipeline/Lit"));
@@ -71,8 +74,25 @@ public class Plugin : BaseUnityPlugin
         SceneManager.sceneLoaded += OnSceneLoaded;
         configStandableBallColor.SettingChanged += Color_SettingChanged;
         configNonStandableBallColor.SettingChanged += Color_SettingChanged;
+        configMode.SettingChanged += ConfigMode_SettingChanged;
 
         Logger.LogInfo($"Loaded Foothold? version {MyPluginInfo.PLUGIN_VERSION}");
+    }
+
+    private void ConfigMode_SettingChanged(object sender, EventArgs e)
+    {
+        ReturnBallsToPool();
+
+        if (configMode.Value != Mode.FadeAway)
+        {
+            foreach (GameObject ball in balls.Concat(redBalls))
+            {
+                Material mat = ball.GetComponent<Renderer>().material;
+                Color baseColor = mat.GetColor("_BaseColor");
+                baseColor.a = alpha;
+                mat.SetColor("_BaseColor", baseColor);
+            }
+        }
     }
 
     private void Color_SettingChanged(object sender, EventArgs e)
@@ -106,7 +126,7 @@ public class Plugin : BaseUnityPlugin
                 pool_balls.Clear();
                 for (int i = 0; i < 2000; i++)
                 {
-                    pool_balls.Add(CreateBall(standable));
+                    pool_balls.Enqueue(CreateBall(standable));
                 }
                 LastStandableColor = standable;
             }
@@ -116,7 +136,7 @@ public class Plugin : BaseUnityPlugin
                 pool_redBalls.Clear();
                 for (int i = 0; i < 2000; i++)
                 {
-                    pool_redBalls.Add(CreateBall(NonStandable));
+                    pool_redBalls.Enqueue(CreateBall(NonStandable));
                 }
                 LastNonStandableColor = NonStandable;
             }
@@ -162,7 +182,7 @@ public class Plugin : BaseUnityPlugin
             // make pools
 
             Color standable;
-            if (configStandableBallColor.Value.Equals("Green"))
+            if (configStandableBallColor.Value == StandableColor.Green)
             {
                 standable = Color.green;
             }
@@ -172,7 +192,7 @@ public class Plugin : BaseUnityPlugin
             }
 
             Color NonStandable;
-            if (configNonStandableBallColor.Value.Equals("Magenta"))
+            if (configNonStandableBallColor.Value == NonStandableColor.Magenta)
             {
                 NonStandable = Color.magenta;
             }
@@ -186,15 +206,9 @@ public class Plugin : BaseUnityPlugin
 
             for (int i = 0; i < 2000; i++)
             {
-                pool_balls.Add(CreateBall(standable));
-                pool_redBalls.Add(CreateBall(NonStandable));
+                pool_balls.Enqueue(CreateBall(standable));
+                pool_redBalls.Enqueue(CreateBall(NonStandable));
             }
-        }
-        else
-        {
-            // clear pools (this isn't destroying the objects but unloading the scene already did that)
-            pool_balls.Clear();
-            pool_redBalls.Clear();
         }
     }
 
@@ -221,7 +235,7 @@ public class Plugin : BaseUnityPlugin
                 return;
             }
             CheckHotkeys();
-            if (configFadeAway.Value && !configHairTrigger.Value) SetBallAlphas();
+            if (configMode.Value == Mode.FadeAway) SetBallAlphas();
         }
     }
 
@@ -232,18 +246,17 @@ public class Plugin : BaseUnityPlugin
         {
             if (isVisualizationRunning) return;
 
-            if (configHairTrigger.Value)
+            if (configMode.Value == Mode.HairTrigger)
             {
                 isVisualizationRunning = true;
-
-                //RenderVisualization();
 
                 StartCoroutine(RenderVisualizationCoroutine());
                 return;
             }
 
-            if (!configFadeAway.Value) activated = !activated;
-            if (activated || configFadeAway.Value) // The activated check is after the change, so this is checking if it has just been toggled on
+            if (configMode.Value == Mode.Toggle)
+                activated = !activated;
+            if (activated || configMode.Value == Mode.FadeAway) // The activated check is after the change, so this is checking if it has just been toggled on
             {
                 isVisualizationRunning = true;
 
@@ -262,15 +275,15 @@ public class Plugin : BaseUnityPlugin
         foreach (GameObject ball in ballsCopy)
         {
             ball.SetActive(false);
-            balls.Remove(ball);
-            pool_balls.Add(ball);
+            balls.Dequeue();
+            pool_balls.Enqueue(ball);
         }
         List<GameObject> redBallsCopy = [.. redBalls]; // Shouldn't modify the list while iterating so we iterate a clone
         foreach (GameObject ball in redBallsCopy)
         {
             ball.SetActive(false);
-            redBalls.Remove(ball);
-            pool_redBalls.Add(ball);
+            redBalls.Dequeue();
+            pool_redBalls.Enqueue(ball);
         }
     }
 
@@ -351,18 +364,16 @@ public class Plugin : BaseUnityPlugin
             {
                 if (angle < 50f && pool_balls.Count > 0)
                 {
-                    GameObject ball = pool_balls.First();
+                    GameObject ball = pool_balls.Dequeue();
                     ball.transform.position = raycastHit.point;
-                    balls.Add(ball);
-                    pool_balls.Remove(ball);
+                    balls.Enqueue(ball);
                     ball.SetActive(true);
                 }
                 else if (angle >= 50f && pool_redBalls.Count > 0)
                 {
-                    GameObject ball = pool_redBalls.First();
+                    GameObject ball = pool_redBalls.Dequeue();
                     ball.transform.position = raycastHit.point;
-                    redBalls.Add(ball);
-                    pool_redBalls.Remove(ball);
+                    redBalls.Enqueue(ball);
                     ball.SetActive(true);
                 }
             }
@@ -372,7 +383,7 @@ public class Plugin : BaseUnityPlugin
     // This method is dedicated to VicVoss
     private void SetBallAlphas()
     {
-        if (!configFadeAway.Value) return; // this shouldn't be needed but it's good to be safe
+        if (configMode.Value != Mode.FadeAway) return; // this shouldn't be needed but it's good to be safe
 
         // effectively restrict framerate to 20 for performance
         if (Time.time - lastAlphaChangeTime < 0.05) return;
@@ -395,8 +406,8 @@ public class Plugin : BaseUnityPlugin
                     foreach (GameObject ball in balls.ToList()) // ToList used to clone the list because you can't modify what you're enumerating
                     {
                         ball.SetActive(false);
-                        balls.Remove(ball);
-                        pool_balls.Add(ball);
+                        balls.Dequeue();
+                        pool_balls.Enqueue(ball);
                     }
                 }
                 if (redBalls.Count > 0)
@@ -404,8 +415,8 @@ public class Plugin : BaseUnityPlugin
                     foreach (GameObject ball in redBalls.ToList()) // ToList used to clone the list because you can't modify what you're enumerating
                     {
                         ball.SetActive(false);
-                        redBalls.Remove(ball);
-                        pool_redBalls.Add(ball);
+                        redBalls.Dequeue();
+                        pool_redBalls.Enqueue(ball);
                     }
                 }
             }
@@ -421,5 +432,12 @@ public class Plugin : BaseUnityPlugin
     {
         Red,
         Magenta
+    }
+    
+    internal enum Mode
+    {
+        Toggle,
+        FadeAway,
+        HairTrigger
     }
 }

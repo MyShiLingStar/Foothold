@@ -22,7 +22,7 @@ public class Plugin : BaseUnityPlugin
     internal static Material baseMaterial;
     internal static float alpha = 1;
 
-    private static readonly Queue<GameObject> balls = []; // good description of this mod
+    private static readonly Queue<GameObject> balls = [];
     private static readonly Queue<GameObject> redBalls = [];
     private static readonly Queue<GameObject> pool_balls = [];
     private static readonly Queue<GameObject> pool_redBalls = [];
@@ -37,7 +37,7 @@ public class Plugin : BaseUnityPlugin
     private Color LastStandableColor = Color.white;
     private Color LastNonStandableColor = Color.red;
 
-
+    private static readonly int poolSize = 3000; 
     private static bool isVisualizationRunning = false;
 
     private void Awake()
@@ -52,7 +52,7 @@ public class Plugin : BaseUnityPlugin
         configMode = Config.Bind("General", "Activation Mode", Mode.Toggle, """
             Toggle: Press once to activate; press again to hide the indicator.
             Fade Away: Activates every time the button is pressed. The indicator will fade away after 3 seconds. Credit to VicVoss on GitHub for the idea.
-            Hair Trigger: Activates every time the button is pressed. The indicator will remain visible.
+            Trigger: Activates every time the button is pressed. The indicator will remain visible.
             """);
         configDebugMode = Config.Bind("General", "Debug Mode", false, "Show debug information");
 
@@ -60,8 +60,9 @@ public class Plugin : BaseUnityPlugin
         // permanently borrowed from https://discussions.unity.com/t/how-to-make-a-urp-lit-material-semi-transparent-using-script-and-then-set-it-back-to-being-solid/942231/3
         mat.SetFloat("_Surface", 1);
         mat.SetFloat("_Blend", 0);
-        mat.SetFloat("_ZWrite", 0);
-        mat.SetFloat("_ReceiveShadows", 0.0f);
+        mat.SetInt("_IgnoreProjector", 1);           // Ignore projectors (like rain)
+        mat.SetInt("_ReceiveShadows", 0);            // Disable shadow reception
+        mat.SetInt("_ZWrite", 0);                    // Disable z-writing
         mat.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
         mat.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
         mat.DisableKeyword("_ALPHATEST_ON");
@@ -72,6 +73,7 @@ public class Plugin : BaseUnityPlugin
         baseMaterial = mat;
 
         SceneManager.sceneLoaded += OnSceneLoaded;
+
         configStandableBallColor.SettingChanged += Color_SettingChanged;
         configNonStandableBallColor.SettingChanged += Color_SettingChanged;
         configMode.SettingChanged += ConfigMode_SettingChanged;
@@ -124,7 +126,7 @@ public class Plugin : BaseUnityPlugin
             if (LastStandableColor != standable)
             {
                 pool_balls.Clear();
-                for (int i = 0; i < 2000; i++)
+                for (int i = 0; i < poolSize; i++)
                 {
                     pool_balls.Enqueue(CreateBall(standable));
                 }
@@ -134,7 +136,7 @@ public class Plugin : BaseUnityPlugin
             if (LastNonStandableColor != NonStandable)
             {
                 pool_redBalls.Clear();
-                for (int i = 0; i < 2000; i++)
+                for (int i = 0; i < poolSize; i++)
                 {
                     pool_redBalls.Enqueue(CreateBall(NonStandable));
                 }
@@ -204,7 +206,7 @@ public class Plugin : BaseUnityPlugin
             LastStandableColor = standable;
             LastNonStandableColor = NonStandable;
 
-            for (int i = 0; i < 2000; i++)
+            for (int i = 0; i < poolSize; i++)
             {
                 pool_balls.Enqueue(CreateBall(standable));
                 pool_redBalls.Enqueue(CreateBall(NonStandable));
@@ -246,7 +248,7 @@ public class Plugin : BaseUnityPlugin
         {
             if (isVisualizationRunning) return;
 
-            if (configMode.Value == Mode.HairTrigger)
+            if (configMode.Value == Mode.Trigger)
             {
                 isVisualizationRunning = true;
 
@@ -271,15 +273,13 @@ public class Plugin : BaseUnityPlugin
 
     private void ReturnBallsToPool()
     {
-        List<GameObject> ballsCopy = [.. balls]; // Shouldn't modify the list while iterating so we iterate a clone
-        foreach (GameObject ball in ballsCopy)
+        foreach (GameObject ball in balls.ToList())
         {
             ball.SetActive(false);
             balls.Dequeue();
             pool_balls.Enqueue(ball);
         }
-        List<GameObject> redBallsCopy = [.. redBalls]; // Shouldn't modify the list while iterating so we iterate a clone
-        foreach (GameObject ball in redBallsCopy)
+        foreach (GameObject ball in redBalls.ToList())
         {
             ball.SetActive(false);
             redBalls.Dequeue();
@@ -321,6 +321,12 @@ public class Plugin : BaseUnityPlugin
         float freq = 0.5f;
         float yFreq = 1f;
         int totalCalls = 0;
+        List<Vector3> visiblePositions = [];
+        List<Vector3> nonVisiblePositions = [];
+
+        Camera theCamera = Camera.main;
+
+        // First pass: Separate positions into visible and non-visible
         for (float x = -10; x <= 10; x += freq)
         {
             for (float y = -10; y <= 10; y += yFreq)
@@ -332,14 +338,38 @@ public class Plugin : BaseUnityPlugin
                         mainCamera.transform.position.y + y,
                         mainCamera.transform.position.z + z
                     );
-                    CheckAndPlaceBallAt(position);
-                    totalCalls++;
-                    if (totalCalls % 1000 == 0)
-                    {
-                        yield return null; // Wait for next frame
-                    }
+
+                    Vector3 viewportPoint = theCamera.WorldToViewportPoint(position);
+                    bool isVisible =
+                        viewportPoint.x >= 0 && viewportPoint.x <= 1 &&
+                        viewportPoint.y >= 0 && viewportPoint.y <= 1 &&
+                        viewportPoint.z > 0;
+
+                    if (isVisible)
+                        visiblePositions.Add(position);
+                    else
+                        nonVisiblePositions.Add(position);
+
+                    if (totalCalls++ % 5000 == 0)
+                        yield return null;
                 }
             }
+        }
+
+        // Second pass: Process visible positions first
+        foreach (Vector3 pos in visiblePositions)
+        {
+            CheckAndPlaceBallAt(pos);
+            if (totalCalls++ % 1000 == 0)
+                yield return null;
+        }
+
+        // Third pass: Process non-visible positions
+        foreach (Vector3 pos in nonVisiblePositions)
+        {
+            CheckAndPlaceBallAt(pos);
+            if (totalCalls++ % 1000 == 0)
+                yield return null;
         }
         isVisualizationRunning = false;
     }
@@ -438,6 +468,6 @@ public class Plugin : BaseUnityPlugin
     {
         Toggle,
         FadeAway,
-        HairTrigger
+        Trigger
     }
 }

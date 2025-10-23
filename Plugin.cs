@@ -346,21 +346,28 @@ public class Plugin : BaseUnityPlugin
                         viewportPoint.z > 0;
 
                     if (isVisible)
+                    {
                         visiblePositions.Add(position);
+                    }
                     else
+                    {
                         nonVisiblePositions.Add(position);
+                    }
 
-                    if (totalCalls++ % 5000 == 0)
+                    if (totalCalls++ % 2000 == 0)
                         yield return null;
                 }
             }
         }
 
+        yield return StartCoroutine(SortWithYield(visiblePositions, theCamera.transform.position));
+        yield return StartCoroutine(SortWithYield(nonVisiblePositions, theCamera.transform.position));
+
         // Second pass: Process visible positions first
         foreach (Vector3 pos in visiblePositions)
         {
             CheckAndPlaceBallAt(pos);
-            if (totalCalls++ % 1000 == 0)
+            if (totalCalls++ % 500 == 0)
                 yield return null;
         }
 
@@ -368,10 +375,45 @@ public class Plugin : BaseUnityPlugin
         foreach (Vector3 pos in nonVisiblePositions)
         {
             CheckAndPlaceBallAt(pos);
-            if (totalCalls++ % 1000 == 0)
+            if (totalCalls++ % 500 == 0)
                 yield return null;
         }
         isVisualizationRunning = false;
+    }
+
+    IEnumerator SortWithYield(List<Vector3> list, Vector3 cameraPosition, int chunkSize = 2000)
+    {
+        int n = list.Count;
+        int totalIterations = 0;
+
+        // Create a custom comparison delegate
+        Comparison<Vector3> compare = (a, b) =>
+        {
+            float distA = (a - cameraPosition).sqrMagnitude;
+            float distB = (b - cameraPosition).sqrMagnitude;
+            return distA.CompareTo(distB);
+        };
+
+        // Sort in chunks
+        for (int i = 0; i < n; i += chunkSize)
+        {
+            int end = Mathf.Min(i + chunkSize, n);
+            List<Vector3> chunk = list.GetRange(i, end - i);
+
+            chunk.Sort(compare);
+
+            // Replace the chunk in the original list
+            for (int j = 0; j < chunk.Count; j++)
+            {
+                list[i + j] = chunk[j];
+                totalIterations++;
+
+                if (totalIterations % 2000 == 0)
+                {
+                    yield return null;
+                }
+            }
+        }
     }
 
     // Most of this code was "borrowed" from CharacterMovement.RaycastGroundCheck

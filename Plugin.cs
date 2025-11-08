@@ -49,7 +49,7 @@ public class Plugin : BaseUnityPlugin
 
         configActivationKey = Config.Bind("General", "Activation Key", KeyCode.F);
 
-        configMode = Config.Bind("General", "Activation Mode", Mode.Toggle, """
+        configMode = Config.Bind("General", "Activation Mode", Mode.FadeAway, """
             Toggle: Press once to activate; press again to hide the indicator.
             Fade Away: Activates every time the button is pressed. The indicator will fade away after 3 seconds. Credit to VicVoss on GitHub for the idea.
             Trigger: Activates every time the button is pressed. The indicator will remain visible.
